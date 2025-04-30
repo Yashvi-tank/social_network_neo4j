@@ -23,6 +23,21 @@ class Database:
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
         self._init_constraints()
 
+    def _init_constraints(self):
+        """
+        Ensure uniqueness on User.id and User.username.
+        """
+        with self.driver.session() as session:
+            session.run(
+                "CREATE CONSTRAINT IF NOT EXISTS "
+                "FOR (u:User) REQUIRE u.id IS UNIQUE"
+            )
+            session.run(
+                "CREATE CONSTRAINT IF NOT EXISTS "
+                "FOR (u:User) REQUIRE u.username IS UNIQUE"
+            )
+
+
     
     
     
@@ -30,10 +45,16 @@ class Database:
     
     # User operations
     def create_user(self, username: str, name: str) -> int:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('INSERT INTO users (username, name) VALUES (?, ?)', (username, name))
-            return cursor.lastrowid
+        with self.driver.session() as session:
+            record = session.run(
+            "MATCH (u:User) RETURN coalesce(max(u.id), 0) AS m"
+        ).single()
+        new_id = record["m"] + 1
+        session.run(
+            "CREATE (u:User {id:$id, username:$username, name:$name})",
+            id=new_id, username=username, name=name
+        )
+        return new_id
     
     def get_user(self, user_id: int) -> Optional[dict]:
         with self._get_connection() as conn:
@@ -46,7 +67,11 @@ class Database:
         with self._get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('SELECT id, username, name FROM users')
-            return [{'id': row[0], 'username': row[1], 'name': row[2]} for row in cursor.fetchall()]
+            return [
+                {'id': row[0], 'username': row[1], 'name': row[2]}
+                for row in cursor.fetchall()
+            ]
+
     
     # Post operations
     def create_post(self, user_id: int, content: str) -> int:
