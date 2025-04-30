@@ -107,21 +107,28 @@ class Database:
 
     
     def get_posts_by_user(self, user_id: int) -> List[dict]:
-        with self._get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT p.id, p.content, p.timestamp, u.username, u.name 
-                FROM posts p JOIN users u ON p.user_id = u.id 
-                WHERE p.user_id = ?
+        with self.driver.session() as session:
+            result = session.run(
+                """
+                MATCH (u:User {id:$uid})-[:POSTED]->(p:Post)
+                RETURN p.id AS id, p.content AS content,
+                    p.timestamp AS ts,
+                    u.username AS username, u.name AS name
                 ORDER BY p.timestamp DESC
-            ''', (user_id,))
-            return [{
-                'id': row[0],
-                'content': row[1],
-                'timestamp': row[2],
-                'username': row[3],
-                'name': row[4]
-            } for row in cursor.fetchall()]
+                """,
+                uid=user_id
+            )
+            return [
+                {
+                    'id': r['id'],
+                    'content': r['content'],
+                    'timestamp': r['ts'],
+                    'username': r['username'],
+                    'name': r['name']
+                }
+                for r in result
+            ]
+
     
     def get_feed(self, user_id: int) -> List[dict]:
         with self._get_connection() as conn:
