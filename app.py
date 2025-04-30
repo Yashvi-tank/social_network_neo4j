@@ -77,8 +77,34 @@ class Database:
     def create_post(self, user_id: int, content: str) -> int:
         with self._get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('INSERT INTO posts (user_id, content) VALUES (?, ?)', (user_id, content))
+            cursor.execute(
+                'INSERT INTO posts (user_id, content) VALUES (?, ?)',
+                (user_id, content)
+            )
             return cursor.lastrowid
+        with self.driver.session() as session:
+            # 1) find current max post id for this user (or 0)
+            record = session.run(
+                "MATCH (u:User {id:$uid})-[:POSTED]->(p:Post) "
+                "RETURN coalesce(max(p.id), 0) AS m",
+                uid=user_id
+            ).single()
+            new_id = record["m"] + 1
+
+            # 2) create the Post node and relationship
+            session.run(
+                """
+                MATCH (u:User {id:$uid})
+                CREATE (u)-[:POSTED]->(p:Post {
+                    id: $id,
+                    content: $content,
+                    timestamp: timestamp()
+                })
+                """,
+                uid=user_id, id=new_id, content=content
+            )
+            return new_id
+
     
     def get_posts_by_user(self, user_id: int) -> List[dict]:
         with self._get_connection() as conn:
